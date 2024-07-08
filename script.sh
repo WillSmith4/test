@@ -1,10 +1,4 @@
-#!/bin/bash
-
-# GUI dependencies
-if ! command -v zenity &> /dev/null; then
-    echo "Zenity is not installed. Please install it to use the GUI."
-    exit 1
-fi
+#!/data/data/com.termux/files/usr/bin/bash
 
 # Colors
 red='\033[0;31m'
@@ -17,7 +11,7 @@ rest='\033[0m'
 
 # Function to install necessary packages
 install_packages() {
-    local packages=(curl jq bc)
+    local packages=(curl jq bc dialog)
     local missing_packages=()
 
     for pkg in "${packages[@]}"; do
@@ -27,20 +21,9 @@ install_packages() {
     done
 
     if [ ${#missing_packages[@]} -gt 0 ]; then
-        if [ -n "$(command -v pkg)" ]; then
-            pkg install "${missing_packages[@]}" -y
-        elif [ -n "$(command -v apt)" ]; then
-            sudo apt update -y
-            sudo apt install "${missing_packages[@]}" -y
-        elif [ -n "$(command -v yum)" ]; then
-            sudo yum update -y
-            sudo yum install "${missing_packages[@]}" -y
-        elif [ -n "$(command -v dnf)" ]; then
-            sudo dnf update -y
-            sudo dnf install "${missing_packages[@]}" -y
-        else
-            echo -e "${yellow}Unsupported package manager. Please install required packages manually.${rest}"
-        fi
+        echo -e "${yellow}Installing missing packages: ${missing_packages[*]}${rest}"
+        pkg update -y
+        pkg install "${missing_packages[@]}" -y
     fi
 }
 
@@ -84,14 +67,12 @@ get_best_item() {
 # Function to wait for cooldown period with countdown
 wait_for_cooldown() {
     cooldown_seconds="$1"
-    (
-        echo "# Upgrade is on cooldown. Waiting for cooldown period of $cooldown_seconds seconds..."
-        for ((i=cooldown_seconds; i>0; i--)); do
-            echo "$i"
-            echo "# $i seconds remaining"
-            sleep 1
-        done
-    ) | zenity --progress --title="Cooldown" --text="Waiting for cooldown..." --percentage=0 --auto-close --auto-kill
+    echo -e "${yellow}Upgrade is on cooldown. Waiting for cooldown period of ${cyan}$cooldown_seconds${yellow} seconds...${rest}"
+    while [ $cooldown_seconds -gt 0 ]; do
+        echo -ne "${cyan}$cooldown_seconds\033[0K\r${rest}"
+        sleep 1
+        ((cooldown_seconds--))
+    done
 }
 
 # Main script logic
@@ -104,7 +85,7 @@ main() {
         profit=$(echo "$best_item" | jq -r '.profitPerHourDelta')
         cooldown=$(echo "$best_item" | jq -r '.cooldownSeconds')
 
-        zenity --info --title="Best Item" --text="Best item to buy: $best_item_id in section: $section\nPrice: $price\nProfit per Hour: $profit"
+        dialog --title "Best Item" --msgbox "Best item to buy: $best_item_id in section: $section\nPrice: $price\nProfit per Hour: $profit" 10 60
 
         current_balance=$(curl -s -X POST \
             -H "Authorization: $Authorization" \
@@ -114,47 +95,52 @@ main() {
 
         if (( $(echo "$current_balance - $price > $min_balance_threshold" | bc -l) )); then
             if [ -n "$best_item_id" ]; then
-                zenity --question --title="Purchase Confirmation" --text="Attempt to purchase upgrade '$best_item_id'?" --ok-label="Yes" --cancel-label="No"
-                if [ $? -eq 0 ]; then
-                    purchase_status=$(purchase_upgrade "$best_item_id")
+                dialog --title "Purchase Confirmation" --yesno "Attempt to purchase upgrade '$best_item_id'?" 7 60
+                response=$?
+                case $response in
+                    0) 
+                        purchase_status=$(purchase_upgrade "$best_item_id")
 
-                    if echo "$purchase_status" | grep -q "error_code"; then
-                        wait_for_cooldown "$cooldown"
-                    else
-                        purchase_time=$(date +"%Y-%m-%d %H:%M:%S")
-                        total_spent=$(echo "$total_spent + $price" | bc)
-                        total_profit=$(echo "$total_profit + $profit" | bc)
-                        current_balance=$(echo "$current_balance - $price" | bc)
+                        if echo "$purchase_status" | grep -q "error_code"; then
+                            wait_for_cooldown "$cooldown"
+                        else
+                            purchase_time=$(date +"%Y-%m-%d %H:%M:%S")
+                            total_spent=$(echo "$total_spent + $price" | bc)
+                            total_profit=$(echo "$total_profit + $profit" | bc)
+                            current_balance=$(echo "$current_balance - $price" | bc)
 
-                        zenity --info --title="Purchase Successful" --text="Upgrade '$best_item_id' purchased successfully at $purchase_time.\nTotal spent so far: $total_spent coins.\nTotal profit added: $total_profit coins per hour.\nCurrent balance: $current_balance coins."
-                        
-                        sleep_duration=$((RANDOM % 8 + 5))
-                        (
-                            echo "# Waiting for $sleep_duration seconds before next purchase..."
-                            for ((i=sleep_duration; i>0; i--)); do
-                                echo "$i"
-                                echo "# $i seconds remaining"
-                                sleep 1
-                            done
-                        ) | zenity --progress --title="Waiting" --text="Waiting before next purchase..." --percentage=0 --auto-close --auto-kill
-                    fi
-                else
-                    break
-                fi
+                            dialog --title "Purchase Successful" --msgbox "Upgrade '$best_item_id' purchased successfully at $purchase_time.\nTotal spent so far: $total_spent coins.\nTotal profit added: $total_profit coins per hour.\nCurrent balance: $current_balance coins." 10 60
+                            
+                            sleep_duration=$((RANDOM % 8 + 5))
+                            echo -e "${green}Waiting for ${yellow}$sleep_duration${green} seconds before next purchase...${rest}"
+                            sleep $sleep_duration
+                        fi
+                        ;;
+                    1) 
+                        break
+                        ;;
+                    255) 
+                        echo "ESC pressed."
+                        break
+                        ;;
+                esac
             else
-                zenity --error --title="Error" --text="No valid item found to buy."
+                dialog --title "Error" --msgbox "No valid item found to buy." 7 40
                 break
             fi
         else
-            zenity --error --title="Error" --text="Current balance ($current_balance) minus price of item ($price) is below the threshold ($min_balance_threshold). Stopping purchases."
+            dialog --title "Error" --msgbox "Current balance ($current_balance) minus price of item ($price) is below the threshold ($min_balance_threshold). Stopping purchases." 8 60
             break
         fi
     done
 }
 
-# GUI for input
-Authorization=$(zenity --entry --title="Authorization" --text="Enter Authorization [Example: Bearer 171852....]:")
-min_balance_threshold=$(zenity --entry --title="Minimum Balance Threshold" --text="Enter minimum balance threshold:")
+# Text-based UI for input
+Authorization=$(dialog --title "Authorization" --inputbox "Enter Authorization [Example: Bearer 171852....]:" 8 60 3>&1 1>&2 2>&3 3>&-)
+min_balance_threshold=$(dialog --title "Minimum Balance Threshold" --inputbox "Enter minimum balance threshold:" 8 60 3>&1 1>&2 2>&3 3>&-)
+
+# Clear screen after input
+clear
 
 # Execute the main function
 main
