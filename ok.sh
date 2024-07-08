@@ -254,68 +254,61 @@ stop_card_buy() {
 }
 
 card_buy_loop() {
-    local last_upgraded_id=""
-
     while $card_buy_running; do
-        echo "Pobieranie dostępnych ulepszeń..."
-        upgrades=$(curl -s -X POST \
-            -H "User-Agent: Mozilla/5.0 (Android 12; Mobile; rv:102.0) Gecko/102.0 Firefox/102.0" \
-            -H "Accept: */*" \
-            -H "Accept-Language: en-US,en;q=0.5" \
-            -H "Referer: https://hamsterkombat.io/" \
-            -H "Authorization: $auth" \
-            -H "Origin: https://hamsterkombat.io" \
-            -H "Connection: keep-alive" \
-            -H "Sec-Fetch-Dest: empty" \
-            -H "Sec-Fetch-Mode: cors" \
-            -H "Sec-Fetch-Site: same-site" \
-            -H "Content-Type: application/json" \
-            "https://api.hamsterkombat.io/clicker/upgrades-for-buy")
-
-        echo "Pobieranie aktualnego balansu..."
-        balance_response=$(curl -s -X POST \
-            -H "Authorization: $auth" \
-            -H "Origin: https://hamsterkombat.io" \
-            -H "Referer: https://hamsterkombat.io/" \
-            "https://api.hamsterkombat.io/clicker/sync")
-
-        current_balance=$(echo "$balance_response" | jq -r '.clickerUser.balanceCoins')
-
-        best_upgrade=$(echo "$upgrades" | jq -r '.upgradesForBuy[] | select(.isExpired == false and .isAvailable == true and .profitPerHourDelta != 0 and .price != 0) | . += {"efficiency": (.profitPerHourDelta / .price)} | sort_by(.efficiency) | reverse | .[0]')
-
-        if [ -n "$best_upgrade" ]; then
-            upgrade_id=$(echo "$best_upgrade" | jq -r '.id')
-            upgrade_price=$(echo "$best_upgrade" | jq -r '.price')
-            upgrade_profit=$(echo "$best_upgrade" | jq -r '.profitPerHourDelta')
-            upgrade_cooldown=$(echo "$best_upgrade" | jq -r '.cooldownSeconds // 0')
-
-            if [ "$(echo "$current_balance - $upgrade_price > $balance_threshold" | bc)" -eq 1 ] && [ "$upgrade_cooldown" -eq 0 ]; then
-                echo "Próba zakupu ulepszenia $upgrade_id..."
-                purchase_response=$(curl -s -X POST \
-                    -H "Content-Type: application/json" \
-                    -H "Authorization: $auth" \
-                    -H "Origin: https://hamsterkombat.io" \
-                    -H "Referer: https://hamsterkombat.io/" \
-                    -d "{\"upgradeId\":\"$upgrade_id\",\"timestamp\":$(date +%s000)}" \
-                    "https://api.hamsterkombat.io/clicker/buy-upgrade")
-
-                if [ "$(echo "$purchase_response" | jq -r '.success')" == "true" ]; then
-                    echo "Ulepszenie $upgrade_id zakupione pomyślnie."
-                    last_upgraded_id=$upgrade_id
-                    sleep $((RANDOM % 4 + 8))
-                else
-                    echo "Nie udało się zakupić ulepszenia $upgrade_id.  $(echo "$purchase_response" | jq .)"
-                    sleep 60
-                fi
-            else
-                echo "Brak odpowiedniego ulepszenia do zakupu w tym momencie. Saldo: $current_balance, Cena: $upgrade_price, Próg: $balance_threshold"
-                sleep 60
-            fi
-        else
-            echo "Nie znaleziono odpowiednich ulepszeń."
-            sleep 60
-        fi
+        check_balance_and_buy_cards
+        sleep_time=$((RANDOM % 3600 + 3600))  # 1-2 godziny
+        echo "Ustawiono interwał: $sleep_time sekund"
+        sleep $sleep_time
     done
+}
+
+check_balance_and_buy_cards() {
+    response=$(curl -s -X GET \
+        -H "User-Agent: Mozilla/5.0 (Android 12; Mobile; rv:102.0) Gecko/102.0 Firefox/102.0" \
+        -H "Accept: */*" \
+        -H "Accept-Language: en-US,en;q=0.5" \
+        -H "Referer: https://hamsterkombat.io/" \
+        -H "Authorization: Bearer $auth" \
+        -H "Origin: https://hamsterkombat.io" \
+        -H "Connection: keep-alive" \
+        -H "Sec-Fetch-Dest: empty" \
+        -H "Sec-Fetch-Mode: cors" \
+        -H "Sec-Fetch-Site: same-site" \
+        "https://api.hamsterkombat.io/clicker/user")
+
+    balance=$(echo "$response" | jq -r '.balance')
+
+    if (( $(echo "$balance >= $balance_threshold" | bc -l) )); then
+        echo "Saldo wystarczające: $balance"
+        buy_cards
+    else
+        echo "Saldo niewystarczające: $balance"
+    fi
+}
+
+buy_cards() {
+    response=$(curl -s -X POST \
+        -H "User-Agent: Mozilla/5.0 (Android 12; Mobile; rv:102.0) Gecko/102.0 Firefox/102.0" \
+        -H "Accept: */*" \
+        -H "Accept-Language: en-US,en;q=0.5" \
+        -H "Referer: https://hamsterkombat.io/" \
+        -H "Authorization: Bearer $auth" \
+        -H "Origin: https://hamsterkombat.io" \
+        -H "Connection: keep-alive" \
+        -H "Sec-Fetch-Dest: empty" \
+        -H "Sec-Fetch-Mode: cors" \
+        -H "Sec-Fetch-Site: same-site" \
+        -H "Content-Type: application/json" \
+        -d "{}" \
+        "https://api.hamsterkombat.io/clicker/buy-cards")
+
+    success=$(echo "$response" | jq -r '.success')
+
+    if [ "$success" = "true" ]; then
+        echo "Karty zostały zakupione pomyślnie."
+    else
+        echo "Zakup kart nie powiódł się."
+    fi
 }
 
 list_upgrades() {
