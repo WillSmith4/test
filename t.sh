@@ -176,7 +176,7 @@ auto_card_buy() {
             echo -e "${red}($account) Failed to fetch upgrades. Status code: $(echo "$upgrades_response" | jq -r '.statusCode // "Unknown"')${reset}"
         fi
 
-        sleep_time=$(( ( RANDOM % 5 ) + 8 ))
+        sleep_time=$(( ( RANDOM % 3 ) + 1 ))
         echo -e "${cyan}($account) Waiting ${sleep_time} seconds before next attempt...${reset}"
         sleep $sleep_time
     done
