@@ -4,9 +4,9 @@
 red='\033[0;31m'
 green='\033[0;32m'
 yellow='\033[0;33m'
+blue='\033[0;34m'
 purple='\033[0;35m'
 cyan='\033[0;36m'
-blue='\033[0;34m'
 rest='\033[0m'
 
 # Global variables
@@ -50,9 +50,15 @@ install_packages() {
 # Install necessary packages
 install_packages
 
+# Function to display error messages
+display_error() {
+    dialog --title "Error" --msgbox "$1" 8 50
+}
+
 # Function to get the best upgrade items
 get_best_items() {
-    curl -s -X POST -H "User-Agent: Mozilla/5.0 (Android 12; Mobile; rv:102.0) Gecko/102.0 Firefox/102.0" \
+    local response
+    response=$(curl -s -X POST -H "User-Agent: Mozilla/5.0 (Android 12; Mobile; rv:102.0) Gecko/102.0 Firefox/102.0" \
         -H "Accept: */*" \
         -H "Accept-Language: en-US,en;q=0.5" \
         -H "Referer: https://hamsterkombat.io/" \
@@ -63,13 +69,21 @@ get_best_items() {
         -H "Sec-Fetch-Mode: cors" \
         -H "Sec-Fetch-Site: same-site" \
         -H "Priority: u=4" \
-        https://api.hamsterkombat.io/clicker/upgrades-for-buy | jq -r '.upgradesForBuy | map(select(.isExpired == false and .isAvailable)) | map(select(.profitPerHourDelta != 0 and .price != 0)) | sort_by(-(.profitPerHourDelta / .price)) | .[:10] | to_entries | map("\(.key+1). ID: \(.value.id), Efficiency: \(.value.profitPerHourDelta / .value.price)")'
+        https://api.hamsterkombat.io/clicker/upgrades-for-buy)
+    
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to fetch upgrade items"
+        return 1
+    fi
+
+    echo "$response" | jq -r '.upgradesForBuy | map(select(.isExpired == false and .isAvailable)) | map(select(.profitPerHourDelta != 0 and .price != 0)) | sort_by(-(.profitPerHourDelta / .price)) | .[:10] | to_entries | map("\(.key+1). ID: \(.value.id), Efficiency: \(.value.profitPerHourDelta / .value.price)")'
 }
 
 # Function to purchase upgrade
 purchase_upgrade() {
-    upgrade_id="$1"
-    timestamp=$(date +%s%3N)
+    local upgrade_id="$1"
+    local timestamp=$(date +%s%3N)
+    local response
     response=$(curl -s -X POST \
       -H "Content-Type: application/json" \
       -H "Authorization: $Authorization" \
@@ -77,6 +91,12 @@ purchase_upgrade() {
       -H "Referer: https://hamsterkombat.io/" \
       -d "{\"upgradeId\": \"$upgrade_id\", \"timestamp\": $timestamp}" \
       https://api.hamsterkombat.io/clicker/buy-upgrade)
+    
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to purchase upgrade"
+        return 1
+    fi
+
     echo "$response"
 }
 
@@ -94,16 +114,18 @@ show_logs() {
 show_main_menu() {
     while true; do
         choice=$(dialog --clear --title "Hamster Kombat Auto Tools" \
-            --menu "Choose an option:" 15 50 3 \
-            1 "Auto Card Buy" \
-            2 "Auto Login" \
-            3 "Exit" \
+            --colors --begin 2 2 \
+            --menu "\Z4Choose an option:\Zn" 15 50 3 \
+            1 "\Z2Auto Card Buy\Zn" \
+            2 "\Z3Auto Login\Zn" \
+            3 "\Z1Exit\Zn" \
             2>&1 >/dev/tty)
 
         case $choice in
             1) auto_card_buy_menu ;;
             2) auto_login_menu ;;
             3) exit 0 ;;
+            *) display_error "Invalid option. Please try again." ;;
         esac
     done
 }
@@ -112,12 +134,13 @@ show_main_menu() {
 auto_card_buy_menu() {
     while true; do
         choice=$(dialog --clear --title "Auto Card Buy" \
-            --menu "Choose an option:" 15 50 5 \
-            1 "Start Auto Buy" \
-            2 "Stop Auto Buy" \
-            3 "Show Best Upgrades" \
-            4 "Show Logs" \
-            5 "Back to Main Menu" \
+            --colors --begin 2 2 \
+            --menu "\Z4Choose an option:\Zn" 15 50 5 \
+            1 "\Z2Start Auto Buy\Zn" \
+            2 "\Z1Stop Auto Buy\Zn" \
+            3 "\Z3Show Best Upgrades\Zn" \
+            4 "\Z6Show Logs\Zn" \
+            5 "\Z5Back to Main Menu\Zn" \
             2>&1 >/dev/tty)
 
         case $choice in
@@ -126,6 +149,7 @@ auto_card_buy_menu() {
             3) show_best_upgrades ;;
             4) show_logs ;;
             5) return ;;
+            *) display_error "Invalid option. Please try again." ;;
         esac
     done
 }
@@ -153,9 +177,10 @@ start_auto_buy() {
             update_log "Fetching available upgrades..."
             available_upgrades=$(get_best_items)
             
-            if [ -z "$available_upgrades" ]; then
+            if [ $? -ne 0 ] || [ -z "$available_upgrades" ]; then
                 update_log "No valid items found to buy."
-                break
+                sleep 60
+                continue
             fi
             
             update_log "Fetching current balance..."
@@ -164,6 +189,12 @@ start_auto_buy() {
                 -H "Origin: https://hamsterkombat.io" \
                 -H "Referer: https://hamsterkombat.io/" \
                 https://api.hamsterkombat.io/clicker/sync | jq -r .clickerUser.balanceCoins)
+            
+            if [ $? -ne 0 ] || [ -z "$current_balance" ]; then
+                update_log "Failed to fetch current balance. Retrying in 60 seconds..."
+                sleep 60
+                continue
+            fi
             
             upgrade_found=false
             
@@ -224,20 +255,25 @@ show_best_upgrades() {
     fi
 
     upgrades=$(get_best_items)
-    dialog --title "Best Upgrades" --msgbox "$upgrades" 20 70
+    if [ $? -ne 0 ]; then
+        display_error "Failed to fetch best upgrades. Please try again."
+    else
+        dialog --title "Best Upgrades" --msgbox "$upgrades" 20 70
+    fi
 }
 
 # Function to show Auto Login menu
 auto_login_menu() {
     while true; do
         choice=$(dialog --clear --title "Auto Login" \
-            --menu "Choose an option:" 15 50 6 \
-            1 "Add Token" \
-            2 "Remove Token" \
-            3 "Start Auto Login" \
-            4 "Stop Auto Login" \
-            5 "Show Logs" \
-            6 "Back to Main Menu" \
+            --colors --begin 2 2 \
+            --menu "\Z4Choose an option:\Zn" 15 50 6 \
+            1 "\Z2Add Token\Zn" \
+            2 "\Z1Remove Token\Zn" \
+            3 "\Z3Start Auto Login\Zn" \
+            4 "\Z1Stop Auto Login\Zn" \
+            5 "\Z6Show Logs\Zn" \
+            6 "\Z5Back to Main Menu\Zn" \
             2>&1 >/dev/tty)
 
         case $choice in
@@ -247,6 +283,7 @@ auto_login_menu() {
             4) stop_auto_login ;;
             5) show_logs ;;
             6) return ;;
+            *) display_error "Invalid option. Please try again." ;;
         esac
     done
 }
@@ -265,14 +302,14 @@ add_token() {
         tokens+=("$account:$token")
         update_log "Token added for account: $account"
     else
-        update_log "Invalid input. Token not added."
+        display_error "Invalid input. Token not added."
     fi
 }
 
 # Function to remove token
 remove_token() {
     if [ ${#tokens[@]} -eq 0 ]; then
-        update_log "No tokens to remove."
+        display_error "No tokens to remove."
         return
     fi
 
@@ -298,7 +335,7 @@ remove_token() {
 # Function to start auto login
 start_auto_login() {
     if [ ${#tokens[@]} -eq 0 ]; then
-        update_log "Please add at least one authorization token."
+        display_error "Please add at least one authorization token."
         return
     fi
 
@@ -319,7 +356,7 @@ start_auto_login() {
                     -H "Referer: https://hamsterkombat.io/" \
                     https://api.hamsterkombat.io/clicker/sync)
                 
-                if echo "$login_response" | grep -q "error"; then
+                if [ $? -ne 0 ] || echo "$login_response" | grep -q "error"; then
                     update_log "Auto login failed for account: $account. Error: $login_response"
                 else
                     update_log "Auto login successful for account: $account"
