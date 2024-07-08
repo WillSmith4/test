@@ -47,7 +47,7 @@ Authorization=""
 min_balance_threshold=0
 last_upgraded_id=""
 running=false
-log_content=""
+log_file="/tmp/hamster_kombat_log.txt"
 tokens=()
 
 # Function to get the best upgrade items
@@ -82,8 +82,12 @@ purchase_upgrade() {
 
 # Function to update log
 update_log() {
-    log_content="$log_content\n$1"
-    dialog --title "Log" --msgbox "$log_content" 20 70
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$log_file"
+}
+
+# Function to show logs
+show_logs() {
+    dialog --title "Log" --tailbox "$log_file" 20 70
 }
 
 # Function to show the main menu
@@ -108,18 +112,20 @@ show_main_menu() {
 auto_card_buy_menu() {
     while true; do
         choice=$(dialog --clear --title "Auto Card Buy" \
-            --menu "Choose an option:" 15 50 4 \
+            --menu "Choose an option:" 15 50 5 \
             1 "Start Auto Buy" \
             2 "Stop Auto Buy" \
             3 "Show Best Upgrades" \
-            4 "Back to Main Menu" \
+            4 "Show Logs" \
+            5 "Back to Main Menu" \
             2>&1 >/dev/tty)
 
         case $choice in
             1) start_auto_buy ;;
             2) stop_auto_buy ;;
             3) show_best_upgrades ;;
-            4) return ;;
+            4) show_logs ;;
+            5) return ;;
         esac
     done
 }
@@ -141,60 +147,71 @@ start_auto_buy() {
     running=true
     update_log "Auto Buy started."
 
-    while $running; do
-        update_log "Fetching available upgrades..."
-        available_upgrades=$(get_best_items)
-        
-        if [ -z "$available_upgrades" ]; then
-            update_log "No valid items found to buy."
-            break
-        fi
-        
-        update_log "Fetching current balance..."
-        current_balance=$(curl -s -X POST \
-            -H "Authorization: $Authorization" \
-            -H "Origin: https://hamsterkombat.io" \
-            -H "Referer: https://hamsterkombat.io/" \
-            https://api.hamsterkombat.io/clicker/sync | jq -r '.clickerUser.balanceCoins')
-        
-        upgrade_found=false
-        
-        echo "$available_upgrades" | while read -r upgrade; do
-            id=$(echo "$upgrade" | cut -d',' -f1 | cut -d':' -f2 | xargs)
-            efficiency=$(echo "$upgrade" | cut -d',' -f2 | cut -d':' -f2 | xargs)
+    # Start the auto-buy process in the background
+    (
+        while $running; do
+            update_log "Fetching available upgrades..."
+            available_upgrades=$(get_best_items)
             
-            upgrade_details=$(curl -s -X POST -H "Authorization: $Authorization" -H "Origin: https://hamsterkombat.io" -H "Referer: https://hamsterkombat.io/" https://api.hamsterkombat.io/clicker/upgrades-for-buy | jq -r ".upgradesForBuy[] | select(.id == \"$id\")")
-            price=$(echo "$upgrade_details" | jq -r '.price')
-            cooldown=$(echo "$upgrade_details" | jq -r '.cooldownSeconds // 0')
+            if [ -z "$available_upgrades" ]; then
+                update_log "No valid items found to buy."
+                break
+            fi
             
-            if (( $(echo "$current_balance - $price > $min_balance_threshold" | bc -l) )); then
-                if [ "$cooldown" -eq 0 ]; then
-                    update_log "Attempting to purchase upgrade '$id'..."
-                    purchase_status=$(purchase_upgrade "$id")
-                    if echo "$purchase_status" | grep -q "error_code"; then
-                        update_log "Failed to purchase upgrade. Error: $purchase_status"
+            update_log "Fetching current balance..."
+            current_balance=$(curl -s -X POST \
+                -H "Authorization: $Authorization" \
+                -H "Origin: https://hamsterkombat.io" \
+                -H "Referer: https://hamsterkombat.io/" \
+                https://api.hamsterkombat.io/clicker/sync | jq -r '.clickerUser.balanceCoins')
+            
+            upgrade_found=false
+            
+            echo "$available_upgrades" | while read -r upgrade; do
+                id=$(echo "$upgrade" | cut -d',' -f1 | cut -d':' -f2 | xargs)
+                efficiency=$(echo "$upgrade" | cut -d',' -f2 | cut -d':' -f2 | xargs)
+                
+                upgrade_details=$(curl -s -X POST -H "Authorization: $Authorization" -H "Origin: https://hamsterkombat.io" -H "Referer: https://hamsterkombat.io/" https://api.hamsterkombat.io/clicker/upgrades-for-buy | jq -r ".upgradesForBuy[] | select(.id == \"$id\")")
+                price=$(echo "$upgrade_details" | jq -r '.price')
+                cooldown=$(echo "$upgrade_details" | jq -r '.cooldownSeconds // 0')
+                
+                if (( $(echo "$current_balance - $price > $min_balance_threshold" | bc -l) )); then
+                    if [ "$cooldown" -eq 0 ]; then
+                        update_log "Attempting to purchase upgrade '$id'..."
+                        purchase_status=$(purchase_upgrade "$id")
+                        if echo "$purchase_status" | grep -q "error_code"; then
+                            update_log "Failed to purchase upgrade. Error: $purchase_status"
+                        else
+                            update_log "Upgrade '$id' purchased successfully."
+                            last_upgraded_id="$id"
+                            upgrade_found=true
+                            sleep_time=$(( ( RANDOM % 4 ) + 8 ))
+                            update_log "Waiting $sleep_time seconds before next purchase..."
+                            sleep "$sleep_time"
+                            break
+                        fi
                     else
-                        update_log "Upgrade '$id' purchased successfully."
-                        last_upgraded_id="$id"
-                        upgrade_found=true
-                        sleep_time=$(( ( RANDOM % 4 ) + 8 ))
-                        update_log "Waiting $sleep_time seconds before next purchase..."
-                        sleep "$sleep_time"
-                        break
+                        update_log "Upgrade is on cooldown for $cooldown seconds. Checking next best upgrade..."
                     fi
                 else
-                    update_log "Upgrade is on cooldown for $cooldown seconds. Checking next best upgrade..."
+                    update_log "Insufficient balance for upgrade '$id'. Checking next best upgrade..."
                 fi
-            else
-                update_log "Insufficient balance for upgrade '$id'. Checking next best upgrade..."
+            done
+            
+            if [ "$upgrade_found" = false ]; then
+                update_log "No suitable upgrade found within the balance threshold. Waiting before next check..."
+                sleep 60
             fi
         done
-        
-        if [ "$upgrade_found" = false ]; then
-            update_log "No suitable upgrade found within the balance threshold. Waiting before next check..."
-            sleep 60
-        fi
-    done
+    ) &
+
+    # Show logs in real-time
+    show_logs
+
+    # After closing the log viewer, stop the auto-buy process
+    running=false
+    wait
+    update_log "Auto Buy stopped."
 }
 
 # Function to stop auto buy
@@ -219,12 +236,13 @@ show_best_upgrades() {
 auto_login_menu() {
     while true; do
         choice=$(dialog --clear --title "Auto Login" \
-            --menu "Choose an option:" 15 50 5 \
+            --menu "Choose an option:" 15 50 6 \
             1 "Add Token" \
             2 "Remove Token" \
             3 "Start Auto Login" \
             4 "Stop Auto Login" \
-            5 "Back to Main Menu" \
+            5 "Show Logs" \
+            6 "Back to Main Menu" \
             2>&1 >/dev/tty)
 
         case $choice in
@@ -232,7 +250,8 @@ auto_login_menu() {
             2) remove_token ;;
             3) start_auto_login ;;
             4) stop_auto_login ;;
-            5) return ;;
+            5) show_logs ;;
+            6) return ;;
         esac
     done
 }
@@ -291,46 +310,57 @@ start_auto_login() {
     running=true
     update_log "Auto Login started."
 
-    while $running; do
-        for token_entry in "${tokens[@]}"; do
-            account=$(echo "$token_entry" | cut -d':' -f1)
-            token=$(echo "$token_entry" | cut -d':' -f2)
-            
-            update_log "Performing auto login for account: $account"
-            login_response=$(curl -s -X POST \
-                -H "Authorization: Bearer $token" \
-                -H "Origin: https://hamsterkombat.io" \
-                -H "Referer: https://hamsterkombat.io/" \
-                https://api.hamsterkombat.io/clicker/sync)
-            
-            if echo "$login_response" | grep -q "error"; then
-                update_log "Auto login failed for account: $account. Error: $login_response"
-            else
-                update_log "Auto login successful for account: $account"
-            fi
+    # Start the auto-login process in the background
+    (
+        while $running; do
+            for token_entry in "${tokens[@]}"; do
+                account=$(echo "$token_entry" | cut -d':' -f1)
+                token=$(echo "$token_entry" | cut -d':' -f2)
+                
+                update_log "Performing auto login for account: $account"
+                login_response=$(curl -s -X POST \
+                    -H "Authorization: Bearer $token" \
+                    -H "Origin: https://hamsterkombat.io" \
+                    -H "Referer: https://hamsterkombat.io/" \
+                    https://api.hamsterkombat.io/clicker/sync)
+                
+                if echo "$login_response" | grep -q "error"; then
+                    update_log "Auto login failed for account: $account. Error: $login_response"
+                else
+                    update_log "Auto login successful for account: $account"
+                fi
 
-            current_hour=$(date +%H)
-            current_minute=$(date +%M)
+                current_hour=$(date +%H)
+                current_minute=$(date +%M)
 
-            # Konwertuj czas na minuty od północy
-            current_time_minutes=$((current_hour * 60 + current_minute))
-            night_start_minutes=$((2 * 60))  # 2:00 AM
-            night_end_minutes=$((7 * 60))  # 7:00 AM
+                # Convert time to minutes from midnight
+                current_time_minutes=$((current_hour * 60 + current_minute))
+                night_start_minutes=$((2 * 60))  # 2:00 AM
+                night_end_minutes=$((7 * 60))  # 7:00 AM
 
-            if [ $current_time_minutes -ge $night_start_minutes ] && [ $current_time_minutes -lt $night_end_minutes ]; then
-                # Noc (od 2:00 AM do 6:59 AM)
-                sleep_seconds=$(awk -v min=18000 -v max=21600 'BEGIN{srand(); print int(min+rand()*(max-min+1))}')
-                update_log "($account) Night time detected. Longer interval set: $sleep_seconds seconds"
-            else
-                # Dzień (pozostałe godziny)
-                sleep_seconds=$(awk -v min=7200 -v max=10800 'BEGIN{srand(); print int(min+rand()*(max-min+1))}')
-                update_log "($account) Day time detected. Normal interval set: $sleep_seconds seconds"
-            fi
+                if [ $current_time_minutes -ge $night_start_minutes ] && [ $current_time_minutes -lt $night_end_minutes ]; then
+                    # Night (2:00 AM to 6:59 AM)
+                    sleep_seconds=$(awk -v min=18000 -v max=21600 'BEGIN{srand(); print int(min+rand()*(max-min+1))}')
+                    update_log "($account) Night time detected. Longer interval set: $sleep_seconds seconds"
+                else
+                    # Day (other hours)
+                    sleep_seconds=$(awk -v min=7200 -v max=10800 'BEGIN{srand(); print int(min+rand()*(max-min+1))}')
+                    update_log "($account) Day time detected. Normal interval set: $sleep_seconds seconds"
+                fi
 
-            update_log "Waiting $sleep_seconds seconds before next login for account: $account"
-            sleep "$sleep_seconds"
+                update_log "Waiting $sleep_seconds seconds before next login for account: $account"
+                sleep "$sleep_seconds"
+            done
         done
-    done
+    ) &
+
+    # Show logs in real-time
+    show_logs
+
+    # After closing the log viewer, stop the auto-login process
+    running=false
+    wait
+    update_log "Auto Login stopped."
 }
 
 # Function to stop auto login
