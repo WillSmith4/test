@@ -9,6 +9,14 @@ cyan='\033[0;36m'
 blue='\033[0;34m'
 rest='\033[0m'
 
+# Global variables
+Authorization=""
+min_balance_threshold=0
+last_upgraded_id=""
+running=false
+tokens=()
+log_buffer=""
+
 # Function to install necessary packages
 install_packages() {
     local packages=(curl jq bc dialog)
@@ -42,14 +50,6 @@ install_packages() {
 # Install necessary packages
 install_packages
 
-# Global variables
-Authorization=""
-min_balance_threshold=0
-last_upgraded_id=""
-running=false
-log_file="/tmp/hamster_kombat_log.txt"
-tokens=()
-
 # Function to get the best upgrade items
 get_best_items() {
     curl -s -X POST -H "User-Agent: Mozilla/5.0 (Android 12; Mobile; rv:102.0) Gecko/102.0 Firefox/102.0" \
@@ -82,12 +82,12 @@ purchase_upgrade() {
 
 # Function to update log
 update_log() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$log_file"
+    log_buffer+="$(date '+%Y-%m-%d %H:%M:%S') - $1\n"
 }
 
 # Function to show logs
 show_logs() {
-    dialog --title "Log" --tailbox "$log_file" 20 70
+    dialog --title "Log" --no-cancel --ok-label "Back" --msgbox "$log_buffer" 20 70
 }
 
 # Function to show the main menu
@@ -202,14 +202,17 @@ start_auto_buy() {
                 update_log "No suitable upgrade found within the balance threshold. Waiting before next check..."
                 sleep 60
             fi
+
+            # Update logs in GUI
+            dialog --clear --title "Auto Buy Log" --no-cancel --ok-label "Stop" --msgbox "$log_buffer" 20 70
+            if [ $? -eq 0 ]; then
+                running=false
+                break
+            fi
         done
     ) &
 
-    # Show logs in real-time
-    show_logs
-
-    # After closing the log viewer, stop the auto-buy process
-    running=false
+    # Wait for the background process to finish
     wait
     update_log "Auto Buy stopped."
 }
@@ -349,16 +352,20 @@ start_auto_login() {
                 fi
 
                 update_log "Waiting $sleep_seconds seconds before next login for account: $account"
+                
+                # Update logs in GUI
+                dialog --clear --title "Auto Login Log" --no-cancel --ok-label "Stop" --msgbox "$log_buffer" 20 70
+                if [ $? -eq 0 ]; then
+                    running=false
+                    break 2
+                fi
+
                 sleep "$sleep_seconds"
             done
         done
     ) &
 
-    # Show logs in real-time
-    show_logs
-
-    # After closing the log viewer, stop the auto-login process
-    running=false
+    # Wait for the background process to finish
     wait
     update_log "Auto Login stopped."
 }
