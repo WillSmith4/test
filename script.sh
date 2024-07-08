@@ -170,7 +170,7 @@ click_loop() {
         single_click "$account" "$auth"
 
         current_hour=$(date +%H)
-        if [ $current_hour -ge 2 ] && [ $current_hour -lt 7 ]; then
+        if [ "$current_hour" -ge 2 ] && [ "$current_hour" -lt 7 ]; then
             sleep_time=$((RANDOM % 3600 + 18000))  # 5-6 godzin
             echo "($account) Wykryto porę nocną. Ustawiono dłuższy interwał."
         else
@@ -236,7 +236,7 @@ set_balance_threshold() {
 }
 
 start_card_buy() {
-    if [ -z "$auth" ] || [ $balance_threshold -eq 0 ]; then
+    if [ -z "$auth" ] || [ "$balance_threshold" -eq 0 ]; then
         echo "Proszę ustawić token autoryzacyjny i minimalny próg balansu."
         return
     fi
@@ -289,7 +289,7 @@ card_buy_loop() {
             upgrade_profit=$(echo "$best_upgrade" | jq -r '.profitPerHourDelta')
             upgrade_cooldown=$(echo "$best_upgrade" | jq -r '.cooldownSeconds // 0')
 
-            if [ "$(echo "$current_balance - $upgrade_price > $balance_threshold" | bc)" -eq 1 ] && [ "$upgrade_cooldown" -eq 0 ]; then
+            if (( $(echo "$current_balance - $upgrade_price > $balance_threshold" | bc -l) )) && [ "$upgrade_cooldown" -eq 0 ]; then
                 echo "Próba zakupu ulepszenia $upgrade_id..."
                 purchase_response=$(curl -s -X POST \
                     -H "Content-Type: application/json" \
