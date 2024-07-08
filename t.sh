@@ -87,11 +87,13 @@ auto_card_buy() {
     local balance_threshold="$2"
     local account="AutoCardBuy"
     local running=true
-    local last_upgraded_id=""
+    local last_best_id=""
 
     echo -e "${cyan}($account) Starting auto card buy...${reset}"
 
     while $running; do
+        start_time=$(date +%s)
+
         echo -e "${cyan}($account) Fetching available upgrades...${reset}"
         upgrades_response=$(curl -s -X POST \
             -H "User-Agent: Mozilla/5.0 (Android 12; Mobile; rv:102.0) Gecko/102.0 Firefox/102.0" \
@@ -126,45 +128,37 @@ auto_card_buy() {
             if [ $(echo "$balance_response" | jq -r '.statusCode // 200') -eq 200 ]; then
                 current_balance=$(echo "$balance_response" | jq -r '.clickerUser.balanceCoins')
 
+                if (( $(echo "$current_balance <= $balance_threshold" | bc -l) )); then
+                    echo -e "${yellow}($account) Balance threshold reached. Stopping auto card buy.${reset}"
+                    running=false
+                    break
+                fi
+
                 upgrade_found=false
 
-                if [ ! -z "$last_upgraded_id" ]; then
-                    last_upgrade=$(echo "$available_upgrades" | jq -r ".[] | select(.id == \"$last_upgraded_id\") | .")
-                    if [ ! -z "$last_upgrade" ] && [ "$(echo "$last_upgrade" | jq -r '.id')" == "$(echo "$available_upgrades" | jq -r '.[0].id')" ]; then
-                        upgrade_price=$(echo "$last_upgrade" | jq -r '.price')
-                        cooldown_seconds=$(echo "$last_upgrade" | jq -r '.cooldownSeconds // 0')
-                        if (( $(echo "$current_balance - $upgrade_price > $balance_threshold" | bc -l) )) && [ "$cooldown_seconds" -eq 0 ]; then
-                            purchase_upgrade "$last_upgrade" "$account" "$auth"
+                echo "$available_upgrades" | jq -c '.[]' | while read -r upgrade && [ "$upgrade_found" = false ]; do
+                    upgrade_id=$(echo "$upgrade" | jq -r '.id')
+                    upgrade_price=$(echo "$upgrade" | jq -r '.price')
+                    upgrade_profit=$(echo "$upgrade" | jq -r '.profitPerHourDelta')
+                    cooldown_seconds=$(echo "$upgrade" | jq -r '.cooldownSeconds // 0')
+                    efficiency=$(echo "scale=6; $upgrade_profit / $upgrade_price" | bc)
+
+                    echo -e "${cyan}($account) Checking upgrade: $upgrade_id${reset}"
+                    echo -e "${cyan}($account) Price: $upgrade_price, Profit/Hour: $upgrade_profit, Efficiency: $efficiency${reset}"
+
+                    if (( $(echo "$current_balance - $upgrade_price > $balance_threshold" | bc -l) )); then
+                        if [ "$cooldown_seconds" -eq 0 ]; then
+                            purchase_upgrade "$upgrade" "$account" "$auth"
                             upgrade_found=true
-                        fi
-                    fi
-                fi
-
-                if [ "$upgrade_found" = false ]; then
-                    echo "$available_upgrades" | jq -c '.[]' | while read -r upgrade && [ "$upgrade_found" = false ]; do
-                        upgrade_id=$(echo "$upgrade" | jq -r '.id')
-                        upgrade_price=$(echo "$upgrade" | jq -r '.price')
-                        upgrade_profit=$(echo "$upgrade" | jq -r '.profitPerHourDelta')
-                        cooldown_seconds=$(echo "$upgrade" | jq -r '.cooldownSeconds // 0')
-                        efficiency=$(echo "scale=6; $upgrade_profit / $upgrade_price" | bc)
-
-                        echo -e "${cyan}($account) Checking upgrade: $upgrade_id${reset}"
-                        echo -e "${cyan}($account) Price: $upgrade_price, Profit/Hour: $upgrade_profit, Efficiency: $efficiency${reset}"
-
-                        if (( $(echo "$current_balance - $upgrade_price > $balance_threshold" | bc -l) )); then
-                            if [ "$cooldown_seconds" -eq 0 ]; then
-                                purchase_upgrade "$upgrade" "$account" "$auth"
-                                upgrade_found=true
-                                last_upgraded_id="$upgrade_id"
-                                break
-                            else
-                                echo -e "${yellow}($account) Upgrade '$upgrade_id' is on cooldown for $cooldown_seconds seconds. Checking next best upgrade...${reset}"
-                            fi
+                            last_best_id="$upgrade_id"
+                            break
                         else
-                            echo -e "${yellow}($account) Insufficient balance for upgrade '$upgrade_id'. Checking next best upgrade...${reset}"
+                            echo -e "${yellow}($account) Upgrade '$upgrade_id' is on cooldown for $cooldown_seconds seconds. Checking next best upgrade...${reset}"
                         fi
-                    done
-                fi
+                    else
+                        echo -e "${yellow}($account) Insufficient balance for upgrade '$upgrade_id'. Checking next best upgrade...${reset}"
+                    fi
+                done
 
                 if [ "$upgrade_found" = false ]; then
                     echo -e "${yellow}($account) No suitable upgrade found within the balance threshold. Waiting before next check...${reset}"
@@ -176,9 +170,15 @@ auto_card_buy() {
             echo -e "${red}($account) Failed to fetch upgrades. Status code: $(echo "$upgrades_response" | jq -r '.statusCode // "Unknown"')${reset}"
         fi
 
-        sleep_time=$(( ( RANDOM % 3 ) + 1 ))
-        echo -e "${cyan}($account) Waiting ${sleep_time} seconds before next attempt...${reset}"
-        sleep $sleep_time
+        end_time=$(date +%s)
+        elapsed=$((end_time - start_time))
+        if [ $elapsed -lt 8 ]; then
+            sleep_time=$((8 - elapsed))
+            echo -e "${cyan}($account) Waiting ${sleep_time} seconds to meet minimum execution time...${reset}"
+            sleep $sleep_time
+        elif [ $elapsed -gt 12 ]; then
+            echo -e "${yellow}($account) Execution time exceeded 12 seconds.${reset}"
+        fi
     done
 }
 
