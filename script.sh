@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # Globalne zmienne
-declare -A tokens
+declare -A tokens=()
 running=false
-declare -A next_click_times
+declare -A next_click_times=()
 card_buy_running=false
 auth=""
 balance_threshold=0
@@ -120,14 +120,14 @@ manage_tokens() {
 add_token() {
     read -p "Podaj nazwę konta: " account
     read -p "Podaj token: " token
-    tokens[$account]=$token
+    tokens["$account"]=$token
     echo "Token dodany pomyślnie."
 }
 
 remove_token() {
     read -p "Podaj nazwę konta do usunięcia: " account
-    if [[ -v tokens[$account] ]]; then
-        unset tokens[$account]
+    if [[ -v tokens["$account"] ]]; then
+        unset tokens["$account"]
         echo "Token usunięty pomyślnie."
     else
         echo "Nie znaleziono tokenu dla podanego konta."
@@ -178,7 +178,7 @@ click_loop() {
             echo "($account) Wykryto porę dzienną. Ustawiono normalny interwał."
         fi
 
-        next_click_times[$account]=$(($(date +%s) + sleep_time))
+        next_click_times["$account"]=$(($(date +%s) + sleep_time))
         sleep $sleep_time
     done
 }
@@ -279,17 +279,17 @@ card_buy_loop() {
             -H "Referer: https://hamsterkombat.io/" \
             "https://api.hamsterkombat.io/clicker/sync")
 
-        current_balance=$(echo $balance_response | jq -r '.clickerUser.balanceCoins')
+        current_balance=$(echo "$balance_response" | jq -r '.clickerUser.balanceCoins')
 
-        best_upgrade=$(echo $upgrades | jq -r '.upgradesForBuy[] | select(.isExpired == false and .isAvailable == true and .profitPerHourDelta != 0 and .price != 0) | . += {"efficiency": (.profitPerHourDelta / .price)} | sort_by(.efficiency) | reverse | .[0]')
+        best_upgrade=$(echo "$upgrades" | jq -r '.upgradesForBuy[] | select(.isExpired == false and .isAvailable == true and .profitPerHourDelta != 0 and .price != 0) | . += {"efficiency": (.profitPerHourDelta / .price)} | sort_by(.efficiency) | reverse | .[0]')
 
         if [ -n "$best_upgrade" ]; then
-            upgrade_id=$(echo $best_upgrade | jq -r '.id')
-            upgrade_price=$(echo $best_upgrade | jq -r '.price')
-            upgrade_profit=$(echo $best_upgrade | jq -r '.profitPerHourDelta')
-            upgrade_cooldown=$(echo $best_upgrade | jq -r '.cooldownSeconds // 0')
+            upgrade_id=$(echo "$best_upgrade" | jq -r '.id')
+            upgrade_price=$(echo "$best_upgrade" | jq -r '.price')
+            upgrade_profit=$(echo "$best_upgrade" | jq -r '.profitPerHourDelta')
+            upgrade_cooldown=$(echo "$best_upgrade" | jq -r '.cooldownSeconds // 0')
 
-            if [ $(echo "$current_balance - $upgrade_price > $balance_threshold" | bc) -eq 1 ] && [ $upgrade_cooldown -eq 0 ]; then
+            if [ "$(echo "$current_balance - $upgrade_price > $balance_threshold" | bc)" -eq 1 ] && [ "$upgrade_cooldown" -eq 0 ]; then
                 echo "Próba zakupu ulepszenia $upgrade_id..."
                 purchase_response=$(curl -s -X POST \
                     -H "Content-Type: application/json" \
@@ -299,7 +299,7 @@ card_buy_loop() {
                     -d "{\"upgradeId\":\"$upgrade_id\",\"timestamp\":$(date +%s000)}" \
                     "https://api.hamsterkombat.io/clicker/buy-upgrade")
 
-                if [ $(echo $purchase_response | jq -r '.success') == "true" ]; then
+                if [ "$(echo "$purchase_response" | jq -r '.success')" == "true" ]; then
                     echo "Ulepszenie $upgrade_id zakupione pomyślnie."
                     last_upgraded_id=$upgrade_id
                     sleep $((RANDOM % 4 + 8))
@@ -335,7 +335,7 @@ list_upgrades() {
         "https://api.hamsterkombat.io/clicker/upgrades-for-buy")
 
     echo "Lista ulepszeń:"
-    echo $upgrades | jq -r '.upgradesForBuy[] | select(.isExpired == false and .isAvailable == true and .profitPerHourDelta != 0 and .price != 0) | . += {"efficiency": (.profitPerHourDelta / .price)} | sort_by(.efficiency) | reverse | .[:10] | .[] | "ID: \(.id), Efektywność: \(.efficiency)"'
+    echo "$upgrades" | jq -r '.upgradesForBuy[] | select(.isExpired == false and .isAvailable == true and .profitPerHourDelta != 0 and .price != 0) | . += {"efficiency": (.profitPerHourDelta / .price)} | sort_by(.efficiency) | reverse | .[:10] | .[] | "ID: \(.id), Efektywność: \(.efficiency)"'
 }
 
 # Uruchomienie głównego menu
