@@ -83,14 +83,10 @@ login_loop() {
 
 # Function for auto card buy
 auto_card_buy() {
-    local auth="$1"
-    local balance_threshold="$2"
-    local account="$3"
-    local last_upgraded_id=""
-
+    local account="AutoCardBuy"
     echo -e "${cyan}($account) Starting auto card buy...${reset}"
 
-    while true; do
+    while $running; do
         echo -e "${cyan}($account) Fetching available upgrades...${reset}"
         upgrades_response=$(curl -s -X POST \
             -H "User-Agent: Mozilla/5.0 (Android 12; Mobile; rv:102.0) Gecko/102.0 Firefox/102.0" \
@@ -134,7 +130,7 @@ auto_card_buy() {
                         if (( $(echo "$current_balance - $last_upgrade_price > $balance_threshold" | bc -l) )); then
                             cooldown_seconds=$(echo "$last_upgrade" | jq -r '.cooldownSeconds // 0')
                             if [ "$cooldown_seconds" -eq 0 ]; then
-                                purchase_upgrade "$auth" "$last_upgrade" "$account"
+                                purchase_upgrade "$last_upgrade" "$account"
                                 upgrade_found=true
                             fi
                         fi
@@ -147,7 +143,7 @@ auto_card_buy() {
                         if (( $(echo "$current_balance - $upgrade_price > $balance_threshold" | bc -l) )); then
                             cooldown_seconds=$(echo "$upgrade" | jq -r '.cooldownSeconds // 0')
                             if [ "$cooldown_seconds" -eq 0 ]; then
-                                purchase_upgrade "$auth" "$upgrade" "$account"
+                                purchase_upgrade "$upgrade" "$account"
                                 upgrade_found=true
                                 break
                             else
@@ -176,11 +172,11 @@ auto_card_buy() {
     done
 }
 
+
 # Function to purchase upgrade
 purchase_upgrade() {
-    local auth="$1"
-    local upgrade="$2"
-    local account="$3"
+    local upgrade="$1"
+    local account="$2"
 
     local best_item_id=$(echo "$upgrade" | jq -r '.id')
     local section=$(echo "$upgrade" | jq -r '.section')
