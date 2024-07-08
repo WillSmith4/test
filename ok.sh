@@ -202,19 +202,8 @@ start_auto_buy() {
                 update_log "No suitable upgrade found within the balance threshold. Waiting before next check..."
                 sleep 60
             fi
-
-            # Update logs in GUI
-            dialog --clear --title "Auto Buy Log" --no-cancel --ok-label "Stop" --msgbox "$log_buffer" 20 70
-            if [ $? -eq 0 ]; then
-                running=false
-                break
-            fi
         done
     ) &
-
-    # Wait for the background process to finish
-    wait
-    update_log "Auto Buy stopped."
 }
 
 # Function to stop auto buy
@@ -352,22 +341,10 @@ start_auto_login() {
                 fi
 
                 update_log "Waiting $sleep_seconds seconds before next login for account: $account"
-                
-                # Update logs in GUI
-                dialog --clear --title "Auto Login Log" --no-cancel --ok-label "Stop" --msgbox "$log_buffer" 20 70
-                if [ $? -eq 0 ]; then
-                    running=false
-                    break 2
-                fi
-
                 sleep "$sleep_seconds"
             done
         done
     ) &
-
-    # Wait for the background process to finish
-    wait
-    update_log "Auto Login stopped."
 }
 
 # Function to stop auto login
