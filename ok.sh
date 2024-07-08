@@ -47,6 +47,8 @@ Authorization=""
 min_balance_threshold=0
 last_upgraded_id=""
 running=false
+log_content=""
+tokens=()
 
 # Function to get the best upgrade items
 get_best_items() {
@@ -78,22 +80,46 @@ purchase_upgrade() {
     echo "$response"
 }
 
+# Function to update log
+update_log() {
+    log_content="$log_content\n$1"
+    dialog --title "Log" --msgbox "$log_content" 20 70
+}
+
 # Function to show the main menu
 show_main_menu() {
+    while true; do
+        choice=$(dialog --clear --title "Hamster Kombat Auto Tools" \
+            --menu "Choose an option:" 15 50 3 \
+            1 "Auto Card Buy" \
+            2 "Auto Login" \
+            3 "Exit" \
+            2>&1 >/dev/tty)
+
+        case $choice in
+            1) auto_card_buy_menu ;;
+            2) auto_login_menu ;;
+            3) exit 0 ;;
+        esac
+    done
+}
+
+# Function to show Auto Card Buy menu
+auto_card_buy_menu() {
     while true; do
         choice=$(dialog --clear --title "Auto Card Buy" \
             --menu "Choose an option:" 15 50 4 \
             1 "Start Auto Buy" \
             2 "Stop Auto Buy" \
             3 "Show Best Upgrades" \
-            4 "Exit" \
+            4 "Back to Main Menu" \
             2>&1 >/dev/tty)
 
         case $choice in
             1) start_auto_buy ;;
             2) stop_auto_buy ;;
             3) show_best_upgrades ;;
-            4) exit 0 ;;
+            4) return ;;
         esac
     done
 }
@@ -113,21 +139,18 @@ start_auto_buy() {
     fi
 
     running=true
-    dialog --infobox "Auto Buy started. Check terminal for progress." 5 50
-    sleep 2
-    clear
+    update_log "Auto Buy started."
 
-    # Auto buy logic here (similar to the main() function in the previous script)
     while $running; do
-        echo -e "${green}Fetching available upgrades...${rest}"
+        update_log "Fetching available upgrades..."
         available_upgrades=$(get_best_items)
         
         if [ -z "$available_upgrades" ]; then
-            echo -e "${red}No valid items found to buy.${rest}"
+            update_log "No valid items found to buy."
             break
         fi
         
-        echo -e "${green}Fetching current balance...${rest}"
+        update_log "Fetching current balance..."
         current_balance=$(curl -s -X POST \
             -H "Authorization: $Authorization" \
             -H "Origin: https://hamsterkombat.io" \
@@ -146,29 +169,29 @@ start_auto_buy() {
             
             if (( $(echo "$current_balance - $price > $min_balance_threshold" | bc -l) )); then
                 if [ "$cooldown" -eq 0 ]; then
-                    echo -e "${green}Attempting to purchase upgrade '${yellow}$id${green}'...${rest}"
+                    update_log "Attempting to purchase upgrade '$id'..."
                     purchase_status=$(purchase_upgrade "$id")
                     if echo "$purchase_status" | grep -q "error_code"; then
-                        echo -e "${red}Failed to purchase upgrade. Error: $purchase_status${rest}"
+                        update_log "Failed to purchase upgrade. Error: $purchase_status"
                     else
-                        echo -e "${green}Upgrade '${yellow}$id${green}' purchased successfully.${rest}"
+                        update_log "Upgrade '$id' purchased successfully."
                         last_upgraded_id="$id"
                         upgrade_found=true
                         sleep_time=$(( ( RANDOM % 4 ) + 8 ))
-                        echo -e "${green}Waiting ${yellow}$sleep_time${green} seconds before next purchase...${rest}"
+                        update_log "Waiting $sleep_time seconds before next purchase..."
                         sleep "$sleep_time"
                         break
                     fi
                 else
-                    echo -e "${yellow}Upgrade is on cooldown for ${cyan}$cooldown${yellow} seconds. Checking next best upgrade...${rest}"
+                    update_log "Upgrade is on cooldown for $cooldown seconds. Checking next best upgrade..."
                 fi
             else
-                echo -e "${red}Insufficient balance for upgrade '${yellow}$id${red}'. Checking next best upgrade...${rest}"
+                update_log "Insufficient balance for upgrade '$id'. Checking next best upgrade..."
             fi
         done
         
         if [ "$upgrade_found" = false ]; then
-            echo -e "${yellow}No suitable upgrade found within the balance threshold. Waiting before next check...${rest}"
+            update_log "No suitable upgrade found within the balance threshold. Waiting before next check..."
             sleep 60
         fi
     done
@@ -177,8 +200,7 @@ start_auto_buy() {
 # Function to stop auto buy
 stop_auto_buy() {
     running=false
-    dialog --infobox "Auto Buy stopped." 5 50
-    sleep 2
+    update_log "Auto Buy stopped."
 }
 
 # Function to show best upgrades
@@ -191,6 +213,130 @@ show_best_upgrades() {
 
     upgrades=$(get_best_items)
     dialog --title "Best Upgrades" --msgbox "$upgrades" 20 70
+}
+
+# Function to show Auto Login menu
+auto_login_menu() {
+    while true; do
+        choice=$(dialog --clear --title "Auto Login" \
+            --menu "Choose an option:" 15 50 5 \
+            1 "Add Token" \
+            2 "Remove Token" \
+            3 "Start Auto Login" \
+            4 "Stop Auto Login" \
+            5 "Back to Main Menu" \
+            2>&1 >/dev/tty)
+
+        case $choice in
+            1) add_token ;;
+            2) remove_token ;;
+            3) start_auto_login ;;
+            4) stop_auto_login ;;
+            5) return ;;
+        esac
+    done
+}
+
+# Function to add token
+add_token() {
+    account=$(dialog --clear --title "Add Token" \
+        --inputbox "Enter account name:" 8 60 \
+        2>&1 >/dev/tty)
+    
+    token=$(dialog --clear --title "Add Token" \
+        --inputbox "Enter token:" 8 60 \
+        2>&1 >/dev/tty)
+
+    if [ -n "$account" ] && [ -n "$token" ]; then
+        tokens+=("$account:$token")
+        update_log "Token added for account: $account"
+    else
+        update_log "Invalid input. Token not added."
+    fi
+}
+
+# Function to remove token
+remove_token() {
+    if [ ${#tokens[@]} -eq 0 ]; then
+        update_log "No tokens to remove."
+        return
+    fi
+
+    options=()
+    for i in "${!tokens[@]}"; do
+        account=$(echo "${tokens[$i]}" | cut -d':' -f1)
+        options+=("$i" "$account")
+    done
+
+    choice=$(dialog --clear --title "Remove Token" \
+        --menu "Choose a token to remove:" 15 50 5 \
+        "${options[@]}" \
+        2>&1 >/dev/tty)
+
+    if [ -n "$choice" ]; then
+        account=$(echo "${tokens[$choice]}" | cut -d':' -f1)
+        unset 'tokens[$choice]'
+        tokens=("${tokens[@]}")
+        update_log "Token removed for account: $account"
+    fi
+}
+
+# Function to start auto login
+start_auto_login() {
+    if [ ${#tokens[@]} -eq 0 ]; then
+        update_log "Please add at least one authorization token."
+        return
+    fi
+
+    running=true
+    update_log "Auto Login started."
+
+    while $running; do
+        for token_entry in "${tokens[@]}"; do
+            account=$(echo "$token_entry" | cut -d':' -f1)
+            token=$(echo "$token_entry" | cut -d':' -f2)
+            
+            update_log "Performing auto login for account: $account"
+            login_response=$(curl -s -X POST \
+                -H "Authorization: Bearer $token" \
+                -H "Origin: https://hamsterkombat.io" \
+                -H "Referer: https://hamsterkombat.io/" \
+                https://api.hamsterkombat.io/clicker/sync)
+            
+            if echo "$login_response" | grep -q "error"; then
+                update_log "Auto login failed for account: $account. Error: $login_response"
+            else
+                update_log "Auto login successful for account: $account"
+            fi
+
+            current_hour=$(date +%H)
+            current_minute=$(date +%M)
+
+            # Konwertuj czas na minuty od północy
+            current_time_minutes=$((current_hour * 60 + current_minute))
+            night_start_minutes=$((2 * 60))  # 2:00 AM
+            night_end_minutes=$((7 * 60))  # 7:00 AM
+
+            if [ $current_time_minutes -ge $night_start_minutes ] && [ $current_time_minutes -lt $night_end_minutes ]; then
+                # Noc (od 2:00 AM do 6:59 AM)
+                sleep_seconds=$(awk -v min=18000 -v max=21600 'BEGIN{srand(); print int(min+rand()*(max-min+1))}')
+                update_log "($account) Night time detected. Longer interval set: $sleep_seconds seconds"
+            else
+                # Dzień (pozostałe godziny)
+                sleep_seconds=$(awk -v min=7200 -v max=10800 'BEGIN{srand(); print int(min+rand()*(max-min+1))}')
+                update_log "($account) Day time detected. Normal interval set: $sleep_seconds seconds"
+            fi
+
+            update_log "Waiting $sleep_seconds seconds before next login for account: $account"
+            sleep "$sleep_seconds"
+        done
+    done
+}
+
+# Function to stop auto login
+stop_auto_login() {
+    running=false
+    update_log "Auto Login stopped."
 }
 
 # Start the main menu
