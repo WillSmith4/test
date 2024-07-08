@@ -87,6 +87,7 @@ auto_card_buy() {
     local balance_threshold="$2"
     local account="AutoCardBuy"
     local running=true
+    local last_upgraded_id=""
 
     echo -e "${cyan}($account) Starting auto card buy...${reset}"
 
@@ -110,8 +111,8 @@ auto_card_buy() {
             available_upgrades=$(echo "$upgrades_response" | jq -c '[.upgradesForBuy[] | select(.isExpired == false and .isAvailable == true and .profitPerHourDelta != 0 and .price != 0)] | sort_by(-.profitPerHourDelta / .price)')
 
             if [ -z "$available_upgrades" ] || [ "$available_upgrades" == "[]" ]; then
-                echo -e "${yellow}($account) No valid item found to buy. Waiting 10 seconds before next check...${reset}"
-                sleep 10
+                echo -e "${yellow}($account) No valid item found to buy. Waiting before next check...${reset}"
+                sleep $(( ( RANDOM % 5 ) + 8 ))
                 continue
             fi
 
@@ -127,54 +128,60 @@ auto_card_buy() {
 
                 upgrade_found=false
 
-                echo "$available_upgrades" | jq -c '.[]' | while read -r upgrade; do
-                    upgrade_id=$(echo "$upgrade" | jq -r '.id')
-                    upgrade_price=$(echo "$upgrade" | jq -r '.price')
-                    upgrade_profit=$(echo "$upgrade" | jq -r '.profitPerHourDelta')
-                    cooldown_seconds=$(echo "$upgrade" | jq -r '.cooldownSeconds // 0')
-                    efficiency=$(echo "scale=6; $upgrade_profit / $upgrade_price" | bc)
-
-                    echo -e "${cyan}($account) Checking upgrade: $upgrade_id${reset}"
-                    echo -e "${cyan}($account) Price: $upgrade_price, Profit/Hour: $upgrade_profit, Efficiency: $efficiency${reset}"
-
-                    if (( $(echo "$current_balance - $upgrade_price > $balance_threshold" | bc -l) )); then
-                        if [ "$cooldown_seconds" -eq 0 ]; then
-                            purchase_upgrade "$upgrade" "$account" "$auth"
+                if [ ! -z "$last_upgraded_id" ]; then
+                    last_upgrade=$(echo "$available_upgrades" | jq -r ".[] | select(.id == \"$last_upgraded_id\") | .")
+                    if [ ! -z "$last_upgrade" ] && [ "$(echo "$last_upgrade" | jq -r '.id')" == "$(echo "$available_upgrades" | jq -r '.[0].id')" ]; then
+                        upgrade_price=$(echo "$last_upgrade" | jq -r '.price')
+                        cooldown_seconds=$(echo "$last_upgrade" | jq -r '.cooldownSeconds // 0')
+                        if (( $(echo "$current_balance - $upgrade_price > $balance_threshold" | bc -l) )) && [ "$cooldown_seconds" -eq 0 ]; then
+                            purchase_upgrade "$last_upgrade" "$account" "$auth"
                             upgrade_found=true
-                            break
-                        else
-                            echo -e "${yellow}($account) Upgrade '$upgrade_id' is on cooldown for $cooldown_seconds seconds. Checking next best upgrade...${reset}"
                         fi
-                    else
-                        echo -e "${yellow}($account) Insufficient balance for upgrade '$upgrade_id'. Checking next best upgrade...${reset}"
                     fi
-                done
+                fi
+
+                if [ "$upgrade_found" = false ]; then
+                    echo "$available_upgrades" | jq -c '.[]' | while read -r upgrade && [ "$upgrade_found" = false ]; do
+                        upgrade_id=$(echo "$upgrade" | jq -r '.id')
+                        upgrade_price=$(echo "$upgrade" | jq -r '.price')
+                        upgrade_profit=$(echo "$upgrade" | jq -r '.profitPerHourDelta')
+                        cooldown_seconds=$(echo "$upgrade" | jq -r '.cooldownSeconds // 0')
+                        efficiency=$(echo "scale=6; $upgrade_profit / $upgrade_price" | bc)
+
+                        echo -e "${cyan}($account) Checking upgrade: $upgrade_id${reset}"
+                        echo -e "${cyan}($account) Price: $upgrade_price, Profit/Hour: $upgrade_profit, Efficiency: $efficiency${reset}"
+
+                        if (( $(echo "$current_balance - $upgrade_price > $balance_threshold" | bc -l) )); then
+                            if [ "$cooldown_seconds" -eq 0 ]; then
+                                purchase_upgrade "$upgrade" "$account" "$auth"
+                                upgrade_found=true
+                                last_upgraded_id="$upgrade_id"
+                                break
+                            else
+                                echo -e "${yellow}($account) Upgrade '$upgrade_id' is on cooldown for $cooldown_seconds seconds. Checking next best upgrade...${reset}"
+                            fi
+                        else
+                            echo -e "${yellow}($account) Insufficient balance for upgrade '$upgrade_id'. Checking next best upgrade...${reset}"
+                        fi
+                    done
+                fi
 
                 if [ "$upgrade_found" = false ]; then
                     echo -e "${yellow}($account) No suitable upgrade found within the balance threshold. Waiting before next check...${reset}"
-                    sleep_time=$(generate_sleep_time 8 12)
-                    echo -e "${cyan}($account) Waiting ${sleep_time} seconds before next attempt...${reset}"
-                    sleep $sleep_time
                 fi
             else
                 echo -e "${red}($account) Failed to fetch balance. Status code: $(echo "$balance_response" | jq -r '.statusCode // "Unknown"')${reset}"
-                sleep 10
             fi
         else
             echo -e "${red}($account) Failed to fetch upgrades. Status code: $(echo "$upgrades_response" | jq -r '.statusCode // "Unknown"')${reset}"
-            sleep 10
         fi
+
+        sleep_time=$(( ( RANDOM % 5 ) + 8 ))
+        echo -e "${cyan}($account) Waiting ${sleep_time} seconds before next attempt...${reset}"
+        sleep $sleep_time
     done
 }
 
-# Function to generate random sleep time
-generate_sleep_time() {
-    local min=$1
-    local max=$2
-    echo $(( (RANDOM % (max - min + 1)) + min ))
-}
-
-# Function to purchase upgrade
 purchase_upgrade() {
     local upgrade="$1"
     local account="$2"
@@ -200,7 +207,7 @@ purchase_upgrade() {
 
     if [ $(echo "$purchase_response" | jq -r '.statusCode // 200') -eq 200 ]; then
         echo -e "${green}($account) Upgrade '$best_item_id' purchased successfully.${reset}"
-        sleep_time=$(generate_sleep_time 8 12)
+        sleep_time=$(( ( RANDOM % 5 ) + 8 ))
         echo -e "${cyan}($account) Waiting ${sleep_time} seconds before next purchase...${reset}"
         sleep $sleep_time
     else
