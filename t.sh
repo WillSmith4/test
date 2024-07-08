@@ -67,23 +67,21 @@ login_loop() {
         
         current_hour=$(date +%H)
         if [ $current_hour -ge 2 ] && [ $current_hour -lt 7 ]; then
-            # Night (from 2:00 to 6:59)
             sleep_time=$(( ( RANDOM % 3600 ) + 18000 ))
             echo -e "${yellow}($account) Night time detected. Set longer interval.${reset}"
         else
-            # Day (other hours)
             sleep_time=$(( ( RANDOM % 3600 ) + 7200 ))
             echo -e "${yellow}($account) Day time detected. Set normal interval.${reset}"
         fi
         
         echo -e "${cyan}($account) Waiting ${sleep_time} seconds before next login...${reset}"
         
-        # Countdown
+        # Countdown on a single line
         for (( i=$sleep_time; i>0; i-- )); do
             printf "\r${cyan}($account) Time remaining: %02d:%02d:%02d${reset}" $((i/3600)) $(((i%3600)/60)) $((i%60))
             sleep 1
         done
-        echo -e "\n${green}($account) Countdown finished. Starting next login...${reset}"
+        echo -e "\n${green}($account) Countdown finished. Starting next login...${reset}" # New line after countdown finishes
     done
 }
 
