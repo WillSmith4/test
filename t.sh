@@ -77,7 +77,13 @@ login_loop() {
         fi
         
         echo -e "${cyan}($account) Waiting ${sleep_time} seconds before next login...${reset}"
-        sleep $sleep_time
+        
+        # Countdown
+        for (( i=$sleep_time; i>0; i-- )); do
+            printf "\r${cyan}($account) Time remaining: %02d:%02d:%02d${reset}" $((i/3600)) $(((i%3600)/60)) $((i%60))
+            sleep 1
+        done
+        echo -e "\n${green}($account) Countdown finished. Starting next login...${reset}"
     done
 }
 
