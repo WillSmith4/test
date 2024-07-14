@@ -37,9 +37,9 @@ single_login() {
         -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36" \
         -H "Accept: */*" \
         -H "Accept-Language: en-US,en;q=0.5" \
-        -H "Referer: https://hamsterkombat.io/" \
+        -H "Referer: https://hamsterkombatgame.io/" \
         -H "Authorization: $auth" \
-        -H "Origin: https://hamsterkombat.io" \
+        -H "Origin: https://hamsterkombatgame.io" \
         -H "Connection: keep-alive" \
         -H "Sec-Fetch-Dest: empty" \
         -H "Sec-Fetch-Mode: cors" \
@@ -103,9 +103,9 @@ auto_card_buy() {
             -H "User-Agent: Mozilla/5.0 (Android 12; Mobile; rv:102.0) Gecko/102.0 Firefox/102.0" \
             -H "Accept: */*" \
             -H "Accept-Language: en-US,en;q=0.5" \
-            -H "Referer: https://hamsterkombat.io/" \
+            -H "Referer: https://hamsterkombatgame.io/" \
             -H "Authorization: $auth" \
-            -H "Origin: https://hamsterkombat.io" \
+            -H "Origin: https://hamsterkombatgame.io" \
             -H "Connection: keep-alive" \
             -H "Sec-Fetch-Dest: empty" \
             -H "Sec-Fetch-Mode: cors" \
@@ -125,8 +125,8 @@ auto_card_buy() {
             echo -e "${cyan}($account) Fetching current balance...${reset}"
             balance_response=$(curl -s -X POST \
                 -H "Authorization: $auth" \
-                -H "Origin: https://hamsterkombat.io" \
-                -H "Referer: https://hamsterkombat.io/" \
+                -H "Origin: https://hamsterkombatgame.io" \
+                -H "Referer: https://hamsterkombatgame.io/" \
                 https://api.hamsterkombat.io/clicker/sync)
 
             if [ $(echo "$balance_response" | jq -r '.statusCode // 200') -eq 200 ]; then
@@ -204,8 +204,8 @@ purchase_upgrade() {
     purchase_response=$(curl -s -X POST \
         -H "Content-Type: application/json" \
         -H "Authorization: $auth" \
-        -H "Origin: https://hamsterkombat.io" \
-        -H "Referer: https://hamsterkombat.io/" \
+        -H "Origin: https://hamsterkombatgame.io" \
+        -H "Referer: https://hamsterkombatgame.io/" \
         -d "{\"upgradeId\": \"$best_item_id\", \"timestamp\": $(date +%s%3N)}" \
         https://api.hamsterkombat.io/clicker/buy-upgrade)
 
