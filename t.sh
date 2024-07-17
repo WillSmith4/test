@@ -7,6 +7,20 @@ yellow='\033[0;33m'
 cyan='\033[0;36m'
 reset='\033[0m'
 
+# Authorization file
+AUTH_FILE="$HOME/.hamster_auth"
+
+# Function to get or set Authorization
+get_authorization() {
+    if [ -f "$AUTH_FILE" ]; then
+        Authorization=$(cat "$AUTH_FILE")
+    else
+        read -p "Enter Authorization [Example: Bearer 171852....]: " Authorization
+        echo "$Authorization" > "$AUTH_FILE"
+        chmod 600 "$AUTH_FILE"  # Set permissions to read/write for owner only
+    fi
+}
+
 # Function to install required packages
 install_packages() {
     local packages=(curl jq bc)
@@ -237,6 +251,8 @@ auto_login() {
 
 # Main script logic
 main() {
+    get_authorization
+
     while true; do
         show_menu
         read -r choice
@@ -259,12 +275,6 @@ main() {
         esac
     done
 }
-
-# Text-based UI for input
-read -p "Enter Authorization [Example: Bearer 171852....]: " Authorization
-
-# Clear screen after input
-clear
 
 # Execute the main function
 main
